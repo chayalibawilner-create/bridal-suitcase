@@ -6,7 +6,7 @@ import urllib.parse
 
 app = Flask(__name__)
 
-TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
+import urllib.parse
 TWILIO_AUTH_TOKEN  = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_PHONE       = os.environ.get("TWILIO_PHONE")
 PICKUP_ADDRESS     = "107 Highgrove Crescent"
