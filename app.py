@@ -141,8 +141,8 @@ def voice():
     gather.say(
         f"Welcome to the {SERVICE_NAME} line. "
         "Press 1 to book a suitcase. "
-        "Press 2 to speak with someone or get help. "
-        "Press 3 to confirm you have returned your suitcase.",
+        "Press 2 to confirm you have returned your suitcase. "
+        "Press 3 to speak with someone or get help.",
         voice="alice"
     )
     response.append(gather)
@@ -153,14 +153,14 @@ def voice():
 def main_menu():
     digit = request.form.get("Digits", "")
     response = VoiceResponse()
-    if digit == "2":
+    if digit == "3":
         response.say(
             "To speak with someone or get help, please call or text 7 3 2 5 0 3 2 9 1 7. "
             "We will do our best to assist you. Thank you and have a wonderful day!",
             voice="alice"
         )
         return Response(str(response), mimetype="text/xml")
-    if digit == "3":
+    if digit == "2":
         gather = Gather(num_digits=10, action="/confirm-return", method="POST", timeout=15, finish_on_key="#")
         gather.say(
             "To confirm your suitcase return, please enter the 10 digit phone number you used to book. Press pound when done.",
