@@ -17,21 +17,15 @@ ADMIN_PASSWORD     = os.environ.get("ADMIN_PASSWORD", "chesed2026")
 sessions = {}
 
 def get_db():
-    import pg8000.native
-    r = urllib.parse.urlparse(DATABASE_URL)
-    # For internal Render connections, no SSL needed
-    return pg8000.native.Connection(
-        host=r.hostname,
-        port=r.port or 5432,
-        database=r.path[1:],
-        user=r.username,
-        password=r.password
-    )
+    import psycopg2
+    import psycopg2.extras
+    return psycopg2.connect(DATABASE_URL, sslmode="disable")
 
 def init_db():
     try:
         conn = get_db()
-        conn.run("""CREATE TABLE IF NOT EXISTS bookings (
+        cur = conn.cursor()
+        cur.execute("""CREATE TABLE IF NOT EXISTS bookings (
             id SERIAL PRIMARY KEY,
             wedding_date VARCHAR(20),
             pickup_time VARCHAR(20),
@@ -39,15 +33,17 @@ def init_db():
             status VARCHAR(20) DEFAULT 'Confirmed',
             booked_at TIMESTAMP DEFAULT NOW()
         )""")
-        conn.run("""CREATE TABLE IF NOT EXISTS settings (
+        cur.execute("""CREATE TABLE IF NOT EXISTS settings (
             key VARCHAR(50) PRIMARY KEY,
             value VARCHAR(100)
         )""")
-        conn.run("""INSERT INTO settings (key, value) VALUES
+        cur.execute("""INSERT INTO settings (key, value) VALUES
             ('total_suitcases', '2'),
             ('slot_1', '11:00 AM'),
             ('slot_2', '12:00 PM')
             ON CONFLICT (key) DO NOTHING""")
+        conn.commit()
+        cur.close()
         conn.close()
         print("DB initialized OK")
     except Exception as e:
@@ -56,7 +52,10 @@ def init_db():
 def get_settings():
     try:
         conn = get_db()
-        rows = conn.run("SELECT key, value FROM settings")
+        cur = conn.cursor()
+        cur.execute("SELECT key, value FROM settings")
+        rows = cur.fetchall()
+        cur.close()
         conn.close()
         return {row[0]: row[1] for row in rows}
     except Exception as e:
@@ -66,9 +65,12 @@ def get_settings():
 def check_availability(date_str):
     try:
         conn = get_db()
-        rows = conn.run("SELECT COUNT(*) FROM bookings WHERE wedding_date = :d AND status = 'Confirmed'", d=date_str)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM bookings WHERE wedding_date = %s AND status = 'Confirmed'", (date_str,))
+        count = cur.fetchone()[0]
+        cur.close()
         conn.close()
-        return rows[0][0]
+        return count
     except Exception as e:
         print(f"Availability error: {e}")
         return 0
@@ -76,8 +78,11 @@ def check_availability(date_str):
 def create_booking(date_str, slot, phone):
     try:
         conn = get_db()
-        conn.run("INSERT INTO bookings (wedding_date, pickup_time, phone, status) VALUES (:d, :s, :p, 'Confirmed')",
-                 d=date_str, s=slot, p=phone)
+        cur = conn.cursor()
+        cur.execute("INSERT INTO bookings (wedding_date, pickup_time, phone, status) VALUES (%s, %s, %s, 'Confirmed')",
+                    (date_str, slot, phone))
+        conn.commit()
+        cur.close()
         conn.close()
         return True
     except Exception as e:
@@ -216,7 +221,10 @@ def admin():
         return "Access denied. Add ?pw=chesed2026 to the URL.", 403
     settings = get_settings()
     conn = get_db()
-    bookings = conn.run("SELECT id, wedding_date, pickup_time, phone, status, booked_at FROM bookings ORDER BY booked_at DESC")
+    cur = conn.cursor()
+    cur.execute("SELECT id, wedding_date, pickup_time, phone, status, booked_at FROM bookings ORDER BY booked_at DESC")
+    bookings = cur.fetchall()
+    cur.close()
     conn.close()
     return render_template_string(ADMIN_HTML, settings=settings, bookings=bookings, pw=pw)
 
@@ -226,9 +234,12 @@ def update_settings():
     if pw != ADMIN_PASSWORD:
         return "Access denied.", 403
     conn = get_db()
-    conn.run("UPDATE settings SET value = :v WHERE key = 'total_suitcases'", v=request.form.get("total_suitcases"))
-    conn.run("UPDATE settings SET value = :v WHERE key = 'slot_1'", v=request.form.get("slot_1"))
-    conn.run("UPDATE settings SET value = :v WHERE key = 'slot_2'", v=request.form.get("slot_2"))
+    cur = conn.cursor()
+    cur.execute("UPDATE settings SET value = %s WHERE key = 'total_suitcases'", (request.form.get("total_suitcases"),))
+    cur.execute("UPDATE settings SET value = %s WHERE key = 'slot_1'", (request.form.get("slot_1"),))
+    cur.execute("UPDATE settings SET value = %s WHERE key = 'slot_2'", (request.form.get("slot_2"),))
+    conn.commit()
+    cur.close()
     conn.close()
     return f'<p>Saved! <a href="/admin?pw={pw}">Back to admin</a></p>'
 
@@ -238,7 +249,10 @@ def cancel_booking(booking_id):
     if pw != ADMIN_PASSWORD:
         return "Access denied.", 403
     conn = get_db()
-    conn.run("UPDATE bookings SET status = 'Cancelled' WHERE id = :id", id=booking_id)
+    cur = conn.cursor()
+    cur.execute("UPDATE bookings SET status = 'Cancelled' WHERE id = %s", (booking_id,))
+    conn.commit()
+    cur.close()
     conn.close()
     return f'<p>Cancelled. <a href="/admin?pw={pw}">Back to admin</a></p>'
 
