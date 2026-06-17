@@ -143,7 +143,7 @@ def got_year():
 
     response = VoiceResponse()
     if available <= 0:
-        response.say(f"We're sorry, all suitcases are fully booked for {month} {day} 20{year}. Please call back to check another date. Thank you!", voice="alice")
+        response.say(f"We're sorry, all suitcases are fully booked for {month} {day} 20{year}. If you need assistance or would like to reach out, please call 7 3 2 5 0 3 2 9 1 7. Thank you!", voice="alice")
         sessions.pop(caller, None)
         return Response(str(response), mimetype="text/xml")
 
