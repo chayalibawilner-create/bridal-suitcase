@@ -27,7 +27,7 @@ def get_db():
         database=r.path[1:],
         user=r.username,
         password=r.password,
-        ssl_context=ssl.create_default_context()
+        ssl_context=False
     )
 
 def init_db():
