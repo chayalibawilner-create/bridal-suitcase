@@ -6,7 +6,7 @@ import urllib.parse
 
 app = Flask(__name__)
 
-import urllib.parse
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN  = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_PHONE       = os.environ.get("TWILIO_PHONE")
 PICKUP_ADDRESS     = "107 Highgrove Crescent"
@@ -24,8 +24,7 @@ def get_db():
         port=r.port or 5432,
         database=r.path[1:],
         user=r.username,
-        password=r.password,
-        ssl_context=None
+        password=r.password
     )
     conn.autocommit = True
     return conn
