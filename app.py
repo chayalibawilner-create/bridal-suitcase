@@ -3,8 +3,8 @@ from twilio.twiml.voice_response import VoiceResponse, Gather
 from twilio.rest import Client
 import os
 import pg8000.native
+import urllib.parse
 import ssl
-from datetime import datetime
 
 app = Flask(__name__)
 
@@ -19,43 +19,43 @@ ADMIN_PASSWORD     = os.environ.get("ADMIN_PASSWORD", "chesed2026")
 sessions = {}
 
 def get_db():
-    import urllib.parse
     r = urllib.parse.urlparse(DATABASE_URL)
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
     return pg8000.native.Connection(
         host=r.hostname,
         port=r.port or 5432,
         database=r.path[1:],
         user=r.username,
         password=r.password,
-        ssl_context=False
+        ssl_context=ctx
     )
 
 def init_db():
-    conn = get_db()
-    conn.run("""
-        CREATE TABLE IF NOT EXISTS bookings (
+    try:
+        conn = get_db()
+        conn.run("""CREATE TABLE IF NOT EXISTS bookings (
             id SERIAL PRIMARY KEY,
             wedding_date VARCHAR(20),
             pickup_time VARCHAR(20),
             phone VARCHAR(20),
             status VARCHAR(20) DEFAULT 'Confirmed',
             booked_at TIMESTAMP DEFAULT NOW()
-        )
-    """)
-    conn.run("""
-        CREATE TABLE IF NOT EXISTS settings (
+        )""")
+        conn.run("""CREATE TABLE IF NOT EXISTS settings (
             key VARCHAR(50) PRIMARY KEY,
             value VARCHAR(100)
-        )
-    """)
-    conn.run("""
-        INSERT INTO settings (key, value) VALUES
+        )""")
+        conn.run("""INSERT INTO settings (key, value) VALUES
             ('total_suitcases', '2'),
             ('slot_1', '11:00 AM'),
             ('slot_2', '12:00 PM')
-        ON CONFLICT (key) DO NOTHING
-    """)
-    conn.close()
+            ON CONFLICT (key) DO NOTHING""")
+        conn.close()
+        print("DB initialized successfully")
+    except Exception as e:
+        print(f"DB init error: {e}")
 
 def get_settings():
     try:
@@ -80,10 +80,8 @@ def check_availability(date_str):
 def create_booking(date_str, slot, phone):
     try:
         conn = get_db()
-        conn.run(
-            "INSERT INTO bookings (wedding_date, pickup_time, phone, status) VALUES (:d, :s, :p, 'Confirmed')",
-            d=date_str, s=slot, p=phone
-        )
+        conn.run("INSERT INTO bookings (wedding_date, pickup_time, phone, status) VALUES (:d, :s, :p, 'Confirmed')",
+                 d=date_str, s=slot, p=phone)
         conn.close()
         return True
     except Exception as e:
@@ -162,7 +160,7 @@ def got_slot():
     sessions[caller]["slot"] = slot
     response = VoiceResponse()
     gather = Gather(num_digits=10, action="/got-phone", method="POST", timeout=15, finish_on_key="#")
-    gather.say(f"Perfect, {slot} is confirmed. Last step — please enter your 10 digit cell phone number to receive a confirmation text. Press pound when done.", voice="alice")
+    gather.say(f"Perfect, {slot} is confirmed. Last step, please enter your 10 digit cell phone number to receive a confirmation text. Press pound when done.", voice="alice")
     response.append(gather)
     return Response(str(response), mimetype="text/xml")
 
@@ -185,7 +183,7 @@ def got_phone():
         client.messages.create(
             to=recipient_phone,
             from_=TWILIO_PHONE,
-            body=(f"Mazal tov! Your bridal suitcase is confirmed.\n\nDate: {date_str}\nPickup: {slot}\nAddress: {PICKUP_ADDRESS}\n\nReturn between 7-9 PM within 48 hours.\nQuestions? Reply to this message.")
+            body=f"Mazal tov! Your bridal suitcase is confirmed.\n\nDate: {date_str}\nPickup: {slot}\nAddress: {PICKUP_ADDRESS}\n\nReturn between 7-9 PM within 48 hours.\nQuestions? Reply to this message."
         )
     except Exception as e:
         print(f"Text error: {e}")
@@ -193,63 +191,29 @@ def got_phone():
     sessions.pop(caller, None)
     return Response(str(response), mimetype="text/xml")
 
-ADMIN_HTML = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Bridal Chesed Suitcase Admin</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; }
-        h1 { font-size: 22px; } h2 { font-size: 18px; margin-top: 30px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { padding: 10px; border: 1px solid #ddd; text-align: left; font-size: 14px; }
-        th { background: #f5f5f5; }
-        .form-row { display: flex; gap: 10px; margin: 10px 0; align-items: center; flex-wrap: wrap; }
-        input { padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
-        button { padding: 8px 16px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
-        button.red { background: #dc2626; }
-        .badge { padding: 2px 8px; border-radius: 10px; font-size: 12px; background: #dcfce7; color: #166534; }
-        .cancelled { background: #fee2e2; color: #991b1b; }
-    </style>
-</head>
-<body>
-    <h1>Bridal Chesed Suitcase — Admin</h1>
-    <h2>Settings</h2>
-    <form method="POST" action="/admin/update-settings?pw={{ pw }}">
-        <div class="form-row">
-            <label>Total suitcases:</label>
-            <input type="number" name="total_suitcases" value="{{ settings.total_suitcases }}" style="width:60px">
-            <label>Slot 1:</label>
-            <input type="text" name="slot_1" value="{{ settings.slot_1 }}" style="width:100px">
-            <label>Slot 2:</label>
-            <input type="text" name="slot_2" value="{{ settings.slot_2 }}" style="width:100px">
-            <button type="submit">Save</button>
-        </div>
-    </form>
-    <h2>Bookings ({{ bookings|length }})</h2>
-    <table>
-        <tr><th>Wedding Date</th><th>Pickup</th><th>Phone</th><th>Status</th><th>Booked At</th><th>Action</th></tr>
-        {% for b in bookings %}
-        <tr>
-            <td>{{ b[1] }}</td><td>{{ b[2] }}</td><td>{{ b[3] }}</td>
-            <td><span class="badge {{ 'cancelled' if b[4] == 'Cancelled' else '' }}">{{ b[4] }}</span></td>
-            <td>{{ b[5].strftime('%m/%d %I:%M %p') if b[5] else '' }}</td>
-            <td>
-                {% if b[4] != 'Cancelled' %}
-                <form method="POST" action="/admin/cancel/{{ b[0] }}?pw={{ pw }}" style="display:inline">
-                    <button class="red" type="submit" onclick="return confirm('Cancel?')">Cancel</button>
-                </form>
-                {% endif %}
-            </td>
-        </tr>
-        {% endfor %}
-    </table>
-</body>
-</html>
-"""
+ADMIN_HTML = """<!DOCTYPE html>
+<html><head><title>Admin</title><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>body{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px}h1{font-size:22px}h2{font-size:18px;margin-top:30px}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{padding:10px;border:1px solid #ddd;text-align:left;font-size:14px}th{background:#f5f5f5}.form-row{display:flex;gap:10px;margin:10px 0;align-items:center;flex-wrap:wrap}input{padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px}button{padding:8px 16px;background:#2563eb;color:white;border:none;border-radius:4px;cursor:pointer;font-size:14px}button.red{background:#dc2626}.badge{padding:2px 8px;border-radius:10px;font-size:12px;background:#dcfce7;color:#166534}.cancelled{background:#fee2e2;color:#991b1b}</style>
+</head><body>
+<h1>Bridal Chesed Suitcase — Admin</h1>
+<h2>Settings</h2>
+<form method="POST" action="/admin/update-settings?pw={{ pw }}">
+<div class="form-row">
+<label>Total suitcases:</label><input type="number" name="total_suitcases" value="{{ settings.total_suitcases }}" style="width:60px">
+<label>Slot 1:</label><input type="text" name="slot_1" value="{{ settings.slot_1 }}" style="width:100px">
+<label>Slot 2:</label><input type="text" name="slot_2" value="{{ settings.slot_2 }}" style="width:100px">
+<button type="submit">Save</button></div></form>
+<h2>Bookings ({{ bookings|length }})</h2>
+<table><tr><th>Wedding Date</th><th>Pickup</th><th>Phone</th><th>Status</th><th>Booked At</th><th>Action</th></tr>
+{% for b in bookings %}<tr>
+<td>{{ b[1] }}</td><td>{{ b[2] }}</td><td>{{ b[3] }}</td>
+<td><span class="badge {{ 'cancelled' if b[4] == 'Cancelled' else '' }}">{{ b[4] }}</span></td>
+<td>{{ b[5] }}</td>
+<td>{% if b[4] != 'Cancelled' %}<form method="POST" action="/admin/cancel/{{ b[0] }}?pw={{ pw }}" style="display:inline"><button class="red" type="submit" onclick="return confirm('Cancel?')">Cancel</button></form>{% endif %}</td>
+</tr>{% endfor %}</table>
+</body></html>"""
 
-@app.route("/admin", methods=["GET"])
+@app.route("/admin")
 def admin():
     pw = request.args.get("pw", "")
     if pw != ADMIN_PASSWORD:
@@ -287,10 +251,7 @@ def health():
     return "OK"
 
 with app.app_context():
-    try:
-        init_db()
-    except Exception as e:
-        print(f"DB init error: {e}")
+    init_db()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
