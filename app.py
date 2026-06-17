@@ -373,14 +373,14 @@ def got_phone():
     add_to_google_calendar(date_str, slot, recipient_phone)
 
     response = VoiceResponse()
-    response.say(f"You are all set! Your bridal suitcase is confirmed for {date_str} with a {slot} pickup at {PICKUP_ADDRESS}. Please return it between 7 and 9 PM within 48 hours. A confirmation text is on its way. Mazal tov and have a beautiful simcha!", voice="alice")
+    response.say(f"You are all set! Your bridal suitcase is confirmed for {date_str} with a {slot} pickup at {PICKUP_ADDRESS}. Please return it between 7 and 9 PM within 48 hours. After you return it, please call this number back and press 2 to confirm the return. A confirmation text is on its way. Mazal tov and have a beautiful simcha!", voice="alice")
 
     try:
         client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
         client.messages.create(
             to=recipient_phone,
             from_=TWILIO_PHONE,
-            body=f"Mazal tov! Your bridal suitcase is confirmed.\n\nDate: {date_str}\nPickup: {slot}\nAddress: {PICKUP_ADDRESS}\n\nReturn between 7-9 PM within 48 hours.\nQuestions? Reply to this message."
+            body=f"Mazal tov! Your bridal suitcase is confirmed.\n\nDate: {date_str}\nPickup: {slot}\nAddress: {PICKUP_ADDRESS}\n\nPlease return between 7-9 PM within 48 hours. IMPORTANT: After returning it, please call {TWILIO_PHONE} and press 2 to confirm the return.\nQuestions? Reply to this message."
         )
     except Exception as e:
         print(f"Text error: {e}")
