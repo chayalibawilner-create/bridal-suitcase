@@ -43,12 +43,11 @@ def init_db():
         )""")
         cur.execute("""CREATE TABLE IF NOT EXISTS settings (
             key VARCHAR(50) PRIMARY KEY,
-            value VARCHAR(100)
+            value VARCHAR(300)
         )""")
         cur.execute("""INSERT INTO settings (key, value) VALUES
             ('total_suitcases', '2'),
-            ('slot_1', '11:00 AM'),
-            ('slot_2', '12:00 PM')
+            ('time_slots', '11:00 AM,12:00 PM')
             ON CONFLICT (key) DO NOTHING""")
         cur.close()
         conn.close()
@@ -67,7 +66,7 @@ def get_settings():
         return {row[0]: row[1] for row in rows}
     except Exception as e:
         print(f"Settings error: {e}")
-        return {"total_suitcases": "2", "slot_1": "11:00 AM", "slot_2": "12:00 PM"}
+        return {"total_suitcases": "2", "time_slots": "11:00 AM,12:00 PM"}
 
 def check_availability(date_str):
     try:
@@ -148,13 +147,14 @@ def got_year():
         sessions.pop(caller, None)
         return Response(str(response), mimetype="text/xml")
 
-    slot_1 = settings.get("slot_1", "11:00 AM")
-    slot_2 = settings.get("slot_2", "12:00 PM")
-    sessions[caller]["slot_1"] = slot_1
-    sessions[caller]["slot_2"] = slot_2
+    slots_str = settings.get("time_slots", "11:00 AM,12:00 PM")
+    slots = [s.strip() for s in slots_str.split(",") if s.strip()]
+    sessions[caller]["slots"] = slots
+
+    slot_phrases = " ".join([f"Press {i+1} for {s}." for i, s in enumerate(slots)])
 
     gather = Gather(num_digits=1, action="/got-slot", method="POST", timeout=10)
-    gather.say(f"Great news! A suitcase is available on {month} {day} 20{year}. We have two pickup times at {PICKUP_ADDRESS}. Press 1 for {slot_1}. Press 2 for {slot_2}.", voice="alice")
+    gather.say(f"Great news! A suitcase is available on {month} {day} 20{year}. We have pickup times at {PICKUP_ADDRESS}. {slot_phrases}", voice="alice")
     response.append(gather)
     return Response(str(response), mimetype="text/xml")
 
@@ -163,7 +163,12 @@ def got_slot():
     caller  = request.form.get("From", "unknown")
     digit   = request.form.get("Digits", "")
     session = sessions.get(caller, {})
-    slot    = session.get("slot_1", "11:00 AM") if digit == "1" else session.get("slot_2", "12:00 PM")
+    slots   = session.get("slots", ["11:00 AM", "12:00 PM"])
+    try:
+        idx = int(digit) - 1
+        slot = slots[idx] if 0 <= idx < len(slots) else slots[0]
+    except (ValueError, IndexError):
+        slot = slots[0]
     sessions[caller]["slot"] = slot
     response = VoiceResponse()
     gather = Gather(num_digits=10, action="/got-phone", method="POST", timeout=15, finish_on_key="#")
@@ -200,16 +205,20 @@ def got_phone():
 
 ADMIN_HTML = """<!DOCTYPE html>
 <html><head><title>Admin</title><meta name="viewport" content="width=device-width, initial-scale=1">
-<style>body{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px}h1{font-size:22px}h2{font-size:18px;margin-top:30px}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{padding:10px;border:1px solid #ddd;text-align:left;font-size:14px}th{background:#f5f5f5}.form-row{display:flex;gap:10px;margin:10px 0;align-items:center;flex-wrap:wrap}input{padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px}button{padding:8px 16px;background:#2563eb;color:white;border:none;border-radius:4px;cursor:pointer;font-size:14px}button.red{background:#dc2626}.badge{padding:2px 8px;border-radius:10px;font-size:12px;background:#dcfce7;color:#166534}.cancelled{background:#fee2e2;color:#991b1b}</style>
+<style>body{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px}h1{font-size:22px}h2{font-size:18px;margin-top:30px}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{padding:10px;border:1px solid #ddd;text-align:left;font-size:14px}th{background:#f5f5f5}.form-row{display:flex;gap:10px;margin:10px 0;align-items:center;flex-wrap:wrap}input{padding:8px;border:1px solid #ddd;border-radius:4px;font-size:14px}input.wide{width:300px}button{padding:8px 16px;background:#2563eb;color:white;border:none;border-radius:4px;cursor:pointer;font-size:14px}button.red{background:#dc2626}.badge{padding:2px 8px;border-radius:10px;font-size:12px;background:#dcfce7;color:#166534}.cancelled{background:#fee2e2;color:#991b1b}.hint{font-size:12px;color:#666;margin-top:4px}</style>
 </head><body>
 <h1>Bridal Chesed Suitcase — Admin</h1>
 <h2>Settings</h2>
 <form method="POST" action="/admin/update-settings?pw={{ pw }}">
 <div class="form-row">
 <label>Total suitcases:</label><input type="number" name="total_suitcases" value="{{ settings.total_suitcases }}" style="width:60px">
-<label>Slot 1:</label><input type="text" name="slot_1" value="{{ settings.slot_1 }}" style="width:100px">
-<label>Slot 2:</label><input type="text" name="slot_2" value="{{ settings.slot_2 }}" style="width:100px">
-<button type="submit">Save</button></div></form>
+</div>
+<div class="form-row">
+<label>Pickup time slots:</label><input type="text" class="wide" name="time_slots" value="{{ settings.time_slots }}">
+</div>
+<div class="hint">Separate times with commas, e.g: 11:00 AM, 12:00 PM, 2:00 PM. Add or remove as many as you want.</div>
+<div class="form-row"><button type="submit">Save</button></div>
+</form>
 <h2>Bookings ({{ bookings|length }})</h2>
 <table><tr><th>Wedding Date</th><th>Pickup</th><th>Phone</th><th>Status</th><th>Booked At</th><th>Action</th></tr>
 {% for b in bookings %}<tr>
@@ -242,8 +251,7 @@ def update_settings():
     conn = get_db()
     cur = conn.cursor()
     cur.execute("UPDATE settings SET value = %s WHERE key = 'total_suitcases'", (request.form.get("total_suitcases"),))
-    cur.execute("UPDATE settings SET value = %s WHERE key = 'slot_1'", (request.form.get("slot_1"),))
-    cur.execute("UPDATE settings SET value = %s WHERE key = 'slot_2'", (request.form.get("slot_2"),))
+    cur.execute("UPDATE settings SET value = %s WHERE key = 'time_slots'", (request.form.get("time_slots"),))
     cur.close()
     conn.close()
     return f'<p>Saved! <a href="/admin?pw={pw}">Back to admin</a></p>'
