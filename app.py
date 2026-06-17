@@ -25,7 +25,7 @@ def get_db():
         database=r.path[1:],
         user=r.username,
         password=r.password,
-        ssl_context=False
+        ssl_context=None
     )
     conn.autocommit = True
     return conn
