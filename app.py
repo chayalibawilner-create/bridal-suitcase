@@ -162,6 +162,19 @@ def send_overdue_email(date_str, slot, phone):
         print(f"Settings error: {e}")
         return {"total_suitcases": "2", "time_slots": "11:00 AM,12:00 PM"}
 
+def get_settings():
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT key, value FROM settings")
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return {row[0]: row[1] for row in rows}
+    except Exception as e:
+        print(f"Settings error: {e}")
+        return {"total_suitcases": "2", "time_slots": "11:00 AM,12:00 PM"}
+
 def check_availability(date_str):
     """
     Counts suitcases unavailable on date_str — meaning bookings where
