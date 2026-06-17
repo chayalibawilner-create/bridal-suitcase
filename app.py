@@ -17,9 +17,18 @@ ADMIN_PASSWORD     = os.environ.get("ADMIN_PASSWORD", "chesed2026")
 sessions = {}
 
 def get_db():
-    import psycopg2
-    import psycopg2.extras
-    return psycopg2.connect(DATABASE_URL, sslmode="disable")
+    import pg8000.dbapi
+    r = urllib.parse.urlparse(DATABASE_URL)
+    conn = pg8000.dbapi.connect(
+        host=r.hostname,
+        port=r.port or 5432,
+        database=r.path[1:],
+        user=r.username,
+        password=r.password,
+        ssl_context=False
+    )
+    conn.autocommit = True
+    return conn
 
 def init_db():
     try:
@@ -42,7 +51,6 @@ def init_db():
             ('slot_1', '11:00 AM'),
             ('slot_2', '12:00 PM')
             ON CONFLICT (key) DO NOTHING""")
-        conn.commit()
         cur.close()
         conn.close()
         print("DB initialized OK")
@@ -81,7 +89,6 @@ def create_booking(date_str, slot, phone):
         cur = conn.cursor()
         cur.execute("INSERT INTO bookings (wedding_date, pickup_time, phone, status) VALUES (%s, %s, %s, 'Confirmed')",
                     (date_str, slot, phone))
-        conn.commit()
         cur.close()
         conn.close()
         return True
@@ -238,7 +245,6 @@ def update_settings():
     cur.execute("UPDATE settings SET value = %s WHERE key = 'total_suitcases'", (request.form.get("total_suitcases"),))
     cur.execute("UPDATE settings SET value = %s WHERE key = 'slot_1'", (request.form.get("slot_1"),))
     cur.execute("UPDATE settings SET value = %s WHERE key = 'slot_2'", (request.form.get("slot_2"),))
-    conn.commit()
     cur.close()
     conn.close()
     return f'<p>Saved! <a href="/admin?pw={pw}">Back to admin</a></p>'
@@ -251,7 +257,6 @@ def cancel_booking(booking_id):
     conn = get_db()
     cur = conn.cursor()
     cur.execute("UPDATE bookings SET status = 'Cancelled' WHERE id = %s", (booking_id,))
-    conn.commit()
     cur.close()
     conn.close()
     return f'<p>Cancelled. <a href="/admin?pw={pw}">Back to admin</a></p>'
