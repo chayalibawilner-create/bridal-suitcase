@@ -2,9 +2,7 @@ from flask import Flask, request, Response, render_template_string
 from twilio.twiml.voice_response import VoiceResponse, Gather
 from twilio.rest import Client
 import os
-import pg8000.native
 import urllib.parse
-import ssl
 
 app = Flask(__name__)
 
@@ -13,23 +11,21 @@ TWILIO_AUTH_TOKEN  = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_PHONE       = os.environ.get("TWILIO_PHONE")
 PICKUP_ADDRESS     = "107 Highgrove Crescent"
 SERVICE_NAME       = "Bridal Chesed Suitcase"
-DATABASE_URL       = os.environ.get("DATABASE_URL")
+DATABASE_URL       = os.environ.get("DATABASE_URL", "")
 ADMIN_PASSWORD     = os.environ.get("ADMIN_PASSWORD", "chesed2026")
 
 sessions = {}
 
 def get_db():
+    import pg8000.native
     r = urllib.parse.urlparse(DATABASE_URL)
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+    # For internal Render connections, no SSL needed
     return pg8000.native.Connection(
         host=r.hostname,
         port=r.port or 5432,
         database=r.path[1:],
         user=r.username,
-        password=r.password,
-        ssl_context=ctx
+        password=r.password
     )
 
 def init_db():
@@ -53,7 +49,7 @@ def init_db():
             ('slot_2', '12:00 PM')
             ON CONFLICT (key) DO NOTHING""")
         conn.close()
-        print("DB initialized successfully")
+        print("DB initialized OK")
     except Exception as e:
         print(f"DB init error: {e}")
 
