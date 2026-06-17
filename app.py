@@ -97,10 +97,32 @@ def create_booking(date_str, slot, phone):
 @app.route("/voice", methods=["GET", "POST"])
 def voice():
     response = VoiceResponse()
-    gather = Gather(num_digits=2, action="/got-month", method="POST", timeout=10, finish_on_key="")
-    gather.say(f"Welcome to the {SERVICE_NAME} line. Please enter the month of your wedding using your keypad. For June press 0 6. For December press 1 2.", voice="alice")
+    gather = Gather(num_digits=1, action="/main-menu", method="POST", timeout=10)
+    gather.say(
+        f"Welcome to the {SERVICE_NAME} line. "
+        "Press 1 to book a suitcase. "
+        "Press 2 to speak with someone or get help.",
+        voice="alice"
+    )
     response.append(gather)
     response.redirect("/voice")
+    return Response(str(response), mimetype="text/xml")
+
+@app.route("/main-menu", methods=["POST"])
+def main_menu():
+    digit = request.form.get("Digits", "")
+    response = VoiceResponse()
+    if digit == "2":
+        response.say(
+            "To speak with someone or get help, please call 7 3 2 5 0 3 2 9 1 7. "
+            "We will do our best to assist you. Thank you and have a wonderful day!",
+            voice="alice"
+        )
+        return Response(str(response), mimetype="text/xml")
+    # Press 1 or anything else — proceed to booking
+    gather = Gather(num_digits=2, action="/got-month", method="POST", timeout=10, finish_on_key="")
+    gather.say("Please enter the month of your wedding using your keypad. For June press 0 6. For December press 1 2.", voice="alice")
+    response.append(gather)
     return Response(str(response), mimetype="text/xml")
 
 @app.route("/got-month", methods=["POST"])
