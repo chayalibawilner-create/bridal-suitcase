@@ -96,7 +96,60 @@ def init_db():
     except Exception as e:
         print(f"DB init error: {e}")
 
-def get_settings():
+def check_overdue_returns():
+    """
+    Finds bookings still 'Confirmed' where the 48-hour return window has passed,
+    and emails MIL once per booking (marks as 'Overdue-Notified' to avoid spamming).
+    """
+    try:
+        from datetime import datetime, timedelta
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT id, wedding_date, pickup_time, phone FROM bookings WHERE status = 'Confirmed'")
+        rows = cur.fetchall()
+        now = datetime.now()
+        for booking_id, wedding_date, pickup_time, phone in rows:
+            try:
+                booked_date = datetime.strptime(wedding_date, "%m/%d/%Y")
+                deadline = booked_date + timedelta(hours=48)
+                if now > deadline:
+                    send_overdue_email(wedding_date, pickup_time, phone)
+                    cur.execute("UPDATE bookings SET status = 'Overdue-Notified' WHERE id = %s", (booking_id,))
+            except Exception:
+                continue
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"Overdue check error: {e}")
+
+def send_overdue_email(date_str, slot, phone):
+    mil_email = os.environ.get("MIL_EMAIL", "")
+    if not mil_email:
+        return
+    try:
+        import smtplib
+        from email.mime.text import MIMEText
+        sendgrid_key = os.environ.get("SENDGRID_API_KEY", "")
+        if not sendgrid_key or sendgrid_key == "skip":
+            print(f"OVERDUE: {phone} has not returned suitcase from {date_str}, no email service configured")
+            return
+        import requests
+        requests.post(
+            "https://api.sendgrid.com/v3/mail/send",
+            headers={"Authorization": f"Bearer {sendgrid_key}", "Content-Type": "application/json"},
+            json={
+                "personalizations": [{"to": [{"email": mil_email}]}],
+                "from": {"email": "bookings@bridalchesed.com"},
+                "subject": f"Suitcase not returned — {date_str}",
+                "content": [{"type": "text/plain", "value": (
+                    f"A suitcase booked for {date_str} ({slot} pickup) has not been marked as returned, "
+                    f"and the 48-hour window has passed.\n\nPhone: {phone}\n\n"
+                    f"You may want to follow up with them directly."
+                )}]
+            }
+        )
+    except Exception as e:
+        print(f"Overdue email error: {e}")
     try:
         conn = get_db()
         cur = conn.cursor()
@@ -110,13 +163,31 @@ def get_settings():
         return {"total_suitcases": "2", "time_slots": "11:00 AM,12:00 PM"}
 
 def check_availability(date_str):
+    """
+    Counts suitcases unavailable on date_str — meaning bookings where
+    date_str falls within [wedding_date, wedding_date + 48 hours],
+    and the booking is still 'Confirmed' (not yet marked Returned/Cancelled).
+    """
     try:
+        from datetime import datetime, timedelta
+        target = datetime.strptime(date_str, "%m/%d/%Y")
+
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM bookings WHERE wedding_date = %s AND status = 'Confirmed'", (date_str,))
-        count = cur.fetchone()[0]
+        cur.execute("SELECT wedding_date FROM bookings WHERE status = 'Confirmed'")
+        rows = cur.fetchall()
         cur.close()
         conn.close()
+
+        count = 0
+        for row in rows:
+            try:
+                booked_date = datetime.strptime(row[0], "%m/%d/%Y")
+                window_end = booked_date + timedelta(hours=48)
+                if booked_date <= target <= window_end:
+                    count += 1
+            except Exception:
+                continue
         return count
     except Exception as e:
         print(f"Availability error: {e}")
@@ -136,6 +207,7 @@ def create_booking(date_str, slot, phone):
 
 @app.route("/voice", methods=["GET", "POST"])
 def voice():
+    check_overdue_returns()
     response = VoiceResponse()
     gather = Gather(num_digits=1, action="/main-menu", method="POST", timeout=10)
     gather.say(
@@ -390,9 +462,36 @@ def mark_returned(booking_id):
     conn.close()
     return f'<p>Marked as returned — suitcase is now available again. <a href="/admin?pw={pw}">Back to admin</a></p>'
 
-@app.route("/health")
-def health():
-    return "OK"
+@app.route("/admin/export")
+def export_csv():
+    pw = request.args.get("pw", "")
+    if pw != ADMIN_PASSWORD:
+        return "Access denied.", 403
+    import csv
+    import io
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT wedding_date, pickup_time, phone, status, booked_at FROM bookings ORDER BY wedding_date ASC")
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Wedding Date", "Pickup Time", "Phone", "Status", "Booked At"])
+    for row in rows:
+        writer.writerow(row)
+
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment;filename=bookings.csv"}
+    )
+
+@app.route("/check-overdue")
+def trigger_overdue_check():
+    check_overdue_returns()
+    return "Checked"
 
 with app.app_context():
     init_db()
