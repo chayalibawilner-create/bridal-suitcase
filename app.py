@@ -121,7 +121,6 @@ def check_availability(date_str):
     except Exception as e:
         print(f"Availability error: {e}")
         return 0
-
 def create_booking(date_str, slot, phone):
     try:
         conn = get_db()
@@ -142,7 +141,8 @@ def voice():
     gather.say(
         f"Welcome to the {SERVICE_NAME} line. "
         "Press 1 to book a suitcase. "
-        "Press 2 to speak with someone or get help.",
+        "Press 2 to speak with someone or get help. "
+        "Press 3 to confirm you have returned your suitcase.",
         voice="alice"
     )
     response.append(gather)
@@ -155,15 +155,52 @@ def main_menu():
     response = VoiceResponse()
     if digit == "2":
         response.say(
-            "To speak with someone or get help, please call 7 3 2 5 0 3 2 9 1 7. "
+            "To speak with someone or get help, please call or text 7 3 2 5 0 3 2 9 1 7. "
             "We will do our best to assist you. Thank you and have a wonderful day!",
             voice="alice"
         )
+        return Response(str(response), mimetype="text/xml")
+    if digit == "3":
+        gather = Gather(num_digits=10, action="/confirm-return", method="POST", timeout=15, finish_on_key="#")
+        gather.say(
+            "To confirm your suitcase return, please enter the 10 digit phone number you used to book. Press pound when done.",
+            voice="alice"
+        )
+        response.append(gather)
         return Response(str(response), mimetype="text/xml")
     # Press 1 or anything else — proceed to booking
     gather = Gather(num_digits=2, action="/got-month", method="POST", timeout=10, finish_on_key="")
     gather.say("Please enter the month of your wedding using your keypad. For June press 0 6. For December press 1 2.", voice="alice")
     response.append(gather)
+    return Response(str(response), mimetype="text/xml")
+
+@app.route("/confirm-return", methods=["POST"])
+def confirm_return():
+    digits = request.form.get("Digits", "")
+    phone = f"+1{digits}" if len(digits) == 10 else digits
+    response = VoiceResponse()
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id FROM bookings WHERE phone = %s AND status = 'Confirmed' ORDER BY booked_at DESC LIMIT 1",
+            (phone,)
+        )
+        row = cur.fetchone()
+        if row:
+            cur.execute("UPDATE bookings SET status = 'Returned' WHERE id = %s", (row[0],))
+            response.say("Thank you! Your suitcase return has been confirmed. Mazal tov again on your simcha!", voice="alice")
+        else:
+            response.say(
+                "We could not find an active booking under that phone number. "
+                "If you need help, please call or text 7 3 2 5 0 3 2 9 1 7.",
+                voice="alice"
+            )
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"Confirm return error: {e}")
+        response.say("Sorry, something went wrong. Please call or text 7 3 2 5 0 3 2 9 1 7 for help.", voice="alice")
     return Response(str(response), mimetype="text/xml")
 
 @app.route("/got-month", methods=["POST"])
@@ -287,9 +324,18 @@ ADMIN_HTML = """<!DOCTYPE html>
 <table><tr><th>Wedding Date</th><th>Pickup</th><th>Phone</th><th>Status</th><th>Booked At</th><th>Action</th></tr>
 {% for b in bookings %}<tr>
 <td>{{ b[1] }}</td><td>{{ b[2] }}</td><td>{{ b[3] }}</td>
-<td><span class="badge {{ 'cancelled' if b[4] == 'Cancelled' else '' }}">{{ b[4] }}</span></td>
+<td><span class="badge {{ 'cancelled' if b[4] in ['Cancelled','Returned'] else '' }}">{{ b[4] }}</span></td>
 <td>{{ b[5] }}</td>
-<td>{% if b[4] != 'Cancelled' %}<form method="POST" action="/admin/cancel/{{ b[0] }}?pw={{ pw }}" style="display:inline"><button class="red" type="submit" onclick="return confirm('Cancel?')">Cancel</button></form>{% endif %}</td>
+<td>
+{% if b[4] == 'Confirmed' %}
+<form method="POST" action="/admin/returned/{{ b[0] }}?pw={{ pw }}" style="display:inline">
+<button type="submit" style="background:#16a34a">Mark returned</button>
+</form>
+<form method="POST" action="/admin/cancel/{{ b[0] }}?pw={{ pw }}" style="display:inline">
+<button class="red" type="submit" onclick="return confirm('Cancel?')">Cancel</button>
+</form>
+{% endif %}
+</td>
 </tr>{% endfor %}</table>
 </body></html>"""
 
@@ -331,6 +377,18 @@ def cancel_booking(booking_id):
     cur.close()
     conn.close()
     return f'<p>Cancelled. <a href="/admin?pw={pw}">Back to admin</a></p>'
+
+@app.route("/admin/returned/<int:booking_id>", methods=["POST"])
+def mark_returned(booking_id):
+    pw = request.args.get("pw", "")
+    if pw != ADMIN_PASSWORD:
+        return "Access denied.", 403
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("UPDATE bookings SET status = 'Returned' WHERE id = %s", (booking_id,))
+    cur.close()
+    conn.close()
+    return f'<p>Marked as returned — suitcase is now available again. <a href="/admin?pw={pw}">Back to admin</a></p>'
 
 @app.route("/health")
 def health():
