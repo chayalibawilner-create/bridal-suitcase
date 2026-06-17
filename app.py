@@ -3,6 +3,7 @@ from twilio.twiml.voice_response import VoiceResponse, Gather
 from twilio.rest import Client
 import os
 import pg8000.native
+import ssl
 from datetime import datetime
 
 app = Flask(__name__)
@@ -26,7 +27,7 @@ def get_db():
         database=r.path[1:],
         user=r.username,
         password=r.password,
-        ssl_context=True
+        ssl_context=ssl.create_default_context()
     )
 
 def init_db():
