@@ -303,8 +303,7 @@ def got_month():
 def got_day():
     caller = request.form.get("From", "unknown")
     day    = request.form.get("Digits", "")
-    if caller in sessions:
-        sessions[caller]["day"] = day
+    sessions.setdefault(caller, {})["day"] = day
     response = VoiceResponse()
     gather = Gather(num_digits=2, action="/got-year", method="POST", timeout=10, finish_on_key="")
     gather.say("Now enter the last two digits of the year. For 2026 press 2 6.", voice="alice")
@@ -315,11 +314,11 @@ def got_day():
 def got_year():
     caller  = request.form.get("From", "unknown")
     year    = request.form.get("Digits", "")
-    session = sessions.get(caller, {})
+    session = sessions.setdefault(caller, {})
     month   = session.get("month", "00")
     day     = session.get("day", "00")
     date_str = f"{month}/{day}/20{year}"
-    sessions[caller]["date_str"] = date_str
+    session["date_str"] = date_str
 
     settings  = get_settings()
     total     = int(settings.get("total_suitcases", "2"))
@@ -334,7 +333,7 @@ def got_year():
 
     slots_str = settings.get("time_slots", "11:00 AM,12:00 PM")
     slots = [s.strip() for s in slots_str.split(",") if s.strip()]
-    sessions[caller]["slots"] = slots
+    session["slots"] = slots
 
     slot_phrases = " ".join([f"Press {i+1} for {s}." for i, s in enumerate(slots)])
 
@@ -347,14 +346,14 @@ def got_year():
 def got_slot():
     caller  = request.form.get("From", "unknown")
     digit   = request.form.get("Digits", "")
-    session = sessions.get(caller, {})
+    session = sessions.setdefault(caller, {})
     slots   = session.get("slots", ["11:00 AM", "12:00 PM"])
     try:
         idx = int(digit) - 1
         slot = slots[idx] if 0 <= idx < len(slots) else slots[0]
     except (ValueError, IndexError):
         slot = slots[0]
-    sessions[caller]["slot"] = slot
+    session["slot"] = slot
     response = VoiceResponse()
     gather = Gather(num_digits=10, action="/got-phone", method="POST", timeout=15, finish_on_key="#")
     gather.say(f"Perfect, {slot} is confirmed. Last step, please enter your 10 digit cell phone number to receive a confirmation text. Press pound when done.", voice="alice")
