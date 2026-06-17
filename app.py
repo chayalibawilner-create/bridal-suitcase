@@ -114,7 +114,7 @@ def main_menu():
     response = VoiceResponse()
     if digit == "2":
         response.say(
-            "To speak with someone or get help, please call 7 3 2 5 0 3 2 9 1 7. "
+            "To speak with someone or get help, please call or text 7 3 2 5 0 3 2 9 1 7. "
             "We will do our best to assist you. Thank you and have a wonderful day!",
             voice="alice"
         )
