@@ -3,6 +3,47 @@ from twilio.twiml.voice_response import VoiceResponse, Gather
 from twilio.rest import Client
 import os
 import urllib.parse
+import json
+
+def add_to_google_calendar(date_str, slot, phone):
+    try:
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+
+        service_account_info = json.loads(os.environ.get("GOOGLE_SERVICE_ACCOUNT", "{}"))
+        calendar_id = os.environ.get("GOOGLE_CALENDAR_ID", "")
+
+        credentials = service_account.Credentials.from_service_account_info(
+            service_account_info,
+            scopes=["https://www.googleapis.com/auth/calendar"]
+        )
+        service = build("calendar", "v3", credentials=credentials)
+
+        # Parse date
+        parts = date_str.split("/")
+        if len(parts) == 3:
+            month, day, year = parts
+            date_formatted = f"{year}-{month}-{day}"
+        else:
+            return
+
+        event = {
+            "summary": f"Bridal Suitcase Pickup — {phone}",
+            "description": f"Pickup time: {slot}\nPhone: {phone}\nAddress: {PICKUP_ADDRESS}",
+            "start": {"date": date_formatted},
+            "end": {"date": date_formatted},
+            "reminders": {
+                "useDefault": False,
+                "overrides": [
+                    {"method": "email", "minutes": 24 * 60},
+                    {"method": "popup", "minutes": 60}
+                ]
+            }
+        }
+        service.events().insert(calendarId=calendar_id, body=event).execute()
+        print("Calendar event created")
+    except Exception as e:
+        print(f"Calendar error: {e}")
 
 app = Flask(__name__)
 
@@ -114,7 +155,7 @@ def main_menu():
     response = VoiceResponse()
     if digit == "2":
         response.say(
-            "To speak with someone or get help, please call or text 7 3 2 5 0 3 2 9 1 7. "
+            "To speak with someone or get help, please call 7 3 2 5 0 3 2 9 1 7. "
             "We will do our best to assist you. Thank you and have a wonderful day!",
             voice="alice"
         )
@@ -208,6 +249,7 @@ def got_phone():
     recipient_phone = f"+1{digits}" if len(digits) == 10 else caller
 
     create_booking(date_str, slot, recipient_phone)
+    add_to_google_calendar(date_str, slot, recipient_phone)
 
     response = VoiceResponse()
     response.say(f"You are all set! Your bridal suitcase is confirmed for {date_str} with a {slot} pickup at {PICKUP_ADDRESS}. Please return it between 7 and 9 PM within 48 hours. A confirmation text is on its way. Mazal tov and have a beautiful simcha!", voice="alice")
